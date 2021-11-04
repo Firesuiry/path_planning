@@ -1,0 +1,6 @@
+scikit-image
+torch
+torchvision
+
+
+
