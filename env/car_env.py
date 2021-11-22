@@ -6,6 +6,8 @@ import cv2
 import skimage.measure
 
 ## 地图大小
+from env.EnvBase import Env
+
 map_height = 1080
 map_width = 1920
 
@@ -102,18 +104,20 @@ def init_space(obstacle_center, car_init):
     return space
 
 
-class env(object):
-    n_action = 28
-    n_action_shape = (28,)
+class env(Env):
+    n_action = 7
+    n_action_shape = (7,)
     # n_state_shape = (8, map_width, map_height)
-    n_state_shape = (8, 192, 108)
+    n_state_shape = (36, 64, 8)
     n_state = n_state_shape[0] * n_state_shape[1] * n_state_shape[2]
 
-    def __init__(self, obstacle_center_init=None, car_center_init=None):
-        if obstacle_center_init is None:
-            obstacle_center_init = obstacle_center
-        if car_center_init is None:
-            car_center_init = car_init
+    def __init__(self, obs_shape=n_state_shape, action_shape=(28,), action_low=-1, action_high=1, show=False):
+        super(env, self).__init__(obs_shape, action_shape, action_low, action_high)
+
+        obstacle_center_init = obstacle_center
+
+        car_center_init = car_init
+        self.step_num = 0
 
         ## 状态
         self.obstacle_center_init = obstacle_center_init
@@ -140,9 +144,10 @@ class env(object):
         self.ax = None
 
     def get_state(self):
-        after_maxpool = skimage.measure.block_reduce(self.state_space, (1, 10, 10), np.max)
+        after_maxpool = skimage.measure.block_reduce(self.state_space, (1, 30, 30), np.max)
         # state = np.swapaxes(after_maxpool, 2, 0)
-        return after_maxpool
+        state = np.transpose(after_maxpool, (1, 2, 0))
+        return state
 
     def reset(self):
         print('env reset')
@@ -161,6 +166,8 @@ class env(object):
 
         self.reward_system = 0
 
+        self.step_num = 0
+
         return self.get_state()
 
     def is_stop(self):
@@ -171,35 +178,41 @@ class env(object):
         else:
             return False
 
-    def step(self, action_28):
+    def step(self, action_28: np.ndarray):
+        self.step_num += 1
         # 初始化小车单步奖励
-        reward = 0
+        if type(action_28) != np.ndarray:
+            action_28 = action_28.numpy()
+        action_74 = action_28.reshape(7, 4)
+        action_74_ex = np.exp(action_74)
+        probs_74 = action_74_ex / np.sum(action_74_ex, axis=-1, keepdims=True)
+        action_7 = np.zeros(7)
+        for i in range(7):
+            action_7[i] = np.random.choice(4, p=probs_74[i])
 
-        action_7_4 = np.argmax(action_28.reshape(7, 4), axis=1)
+        reward = np.zeros(7)
+
         # print(f'执行的action：{action_28.reshape(7, 4)}')
-        for i, act_class in enumerate(list(action_7_4)):
+        for i, act_class in enumerate(list(action_7)):
             new_car_center = copy.deepcopy(self.car_center[i])
-
             if act_class == 0:  # 不动
-                reward += -0.1
+                pass
             elif act_class == 1:  # 动作类别1表示前进
-                reward += 1
                 new_car_center[1] = min(self.car_center[i][1] + car_width, map_width - 50)
             elif act_class == 2:  # 动作类别2表示向上移动
-                reward += -0.1
                 new_car_center[0] = max(self.car_center[i][0] - car_height, 50)
             else:  # 动作类别3表示向下移动
-                reward += -0.1
                 new_car_center[0] = min(self.car_center[i][0] + car_height, map_height - 50)
 
             if is_knock(new_car_center, self.car_center, self.obstacle_center, car_id=i):
                 # print(F'car id:{i} 发生碰撞')
-                reward += -1
+                reward[i] = -1
             else:
                 if act_class == 0:  # 不动
-                    pass
+                    reward[i] = -0.1
                 elif act_class == 1:  # 前进
                     ## 更新状态图
+                    reward[i] = 1
                     local = np.where(self.state_space[i, ...] != 0)
 
                     self.state_space[i, ...] = 0
@@ -210,6 +223,7 @@ class env(object):
                     self.car_center[i][1] = min(self.car_center[i][1] + car_width, map_width - 50)
 
                 elif act_class == 2:  # 向上
+                    reward[i] = -0.1
                     # 更新状态图
                     local = np.where(self.state_space[i, ...] != 0)
                     self.state_space[i, ...] = 0
@@ -220,6 +234,7 @@ class env(object):
                     self.car_center[i][0] = max(self.car_center[i][0] - car_height, 50)
                 else:  # 向下
                     # 更新状态图
+                    reward[i] = -0.1
                     local = np.where(self.state_space[i, ...] != 0)
                     self.state_space[i, ...] = 0
                     local = (np.minimum(map_height - 50, local[0] + car_height), local[1])
@@ -230,11 +245,15 @@ class env(object):
 
         # print(self.car_center)
         done = self.is_stop()
+        reward = np.sum(reward)
         if done:
             reward += 10
 
-        print(F'reward: {reward} done:{done}')
-        return self.get_state(), reward, done, None
+        # print(F'reward: {reward} done:{done}')
+        state = self.get_state()
+        if self.step_num > 100:
+            done = True
+        return state, reward, done, None
 
     def show_state(self):
 
@@ -245,7 +264,7 @@ class env(object):
         #     else:
         #         ax[i // 3, i % 3].imshow(np.sum(self.state_space, axis=0), cmap='gray')
 
-        plt.imshow(np.sum(self.state_space, axis=0), cmap='gray')
+        plt.imshow(np.sum(self.get_state(), axis=0), cmap='gray')
 
         plt.pause(0.01)
 
@@ -258,18 +277,17 @@ class env(object):
 if __name__ == '__main__':
 
     env1 = env(obstacle_center, car_init)
-    plt.figure()
+    # plt.figure()
 
     for i in range(100):
         s = env1.reset()
 
-        print('-'*50)
+        print('-' * 50)
         for step in range(5):
             action = np.random.random(28)
             # plt.imshow(np.sum(env1.get_state(),axis=0), cmap='gray')
-            plt.pause(10)
+            # plt.pause(10)
 
             env1.is_stop()
             env1.step(action)
-            env1.show_state()
-
+            # env1.show_state()
