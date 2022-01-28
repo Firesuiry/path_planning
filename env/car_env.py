@@ -1,8 +1,8 @@
 import copy
 
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import cv2
 import skimage.measure
 
 ## 地图大小
@@ -142,12 +142,17 @@ class env(Env):
         # 展示相关
         self.fig = None
         self.ax = None
+        self.show = show
 
     def get_state(self):
         after_maxpool = skimage.measure.block_reduce(self.state_space, (1, 30, 30), np.max)
         # state = np.swapaxes(after_maxpool, 2, 0)
         state = np.transpose(after_maxpool, (1, 2, 0))
         return state
+
+    def get_render_state(self):
+        after_maxpool = skimage.measure.block_reduce(self.state_space, (1, 30, 30), np.max)
+        return after_maxpool
 
     def reset(self):
         print('env reset')
@@ -249,10 +254,11 @@ class env(Env):
         if done:
             reward += 10
 
-        # print(F'reward: {reward} done:{done}')
         state = self.get_state()
         if self.step_num > 100:
             done = True
+        if self.show:
+            print(F'reward: {reward} done:{done}')
         return state, reward, done, None
 
     def show_state(self):
@@ -264,9 +270,9 @@ class env(Env):
         #     else:
         #         ax[i // 3, i % 3].imshow(np.sum(self.state_space, axis=0), cmap='gray')
 
-        plt.imshow(np.sum(self.get_state(), axis=0), cmap='gray')
+        plt.imshow(np.sum(self.get_render_state(), axis=0), cmap='gray')
 
-        plt.pause(0.01)
+        plt.pause(0.1)
 
     def render(self):
         if self.fig is None:
@@ -283,11 +289,12 @@ if __name__ == '__main__':
         s = env1.reset()
 
         print('-' * 50)
-        for step in range(5):
+        for step in range(100):
             action = np.random.random(28)
             # plt.imshow(np.sum(env1.get_state(),axis=0), cmap='gray')
             # plt.pause(10)
 
             env1.is_stop()
             env1.step(action)
+            env1.render()
             # env1.show_state()

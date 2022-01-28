@@ -1,2 +1,6 @@
 /model/
 /.idea/
+*.h5
+/logs/
+events.out*
+/Rl/train0/logs/

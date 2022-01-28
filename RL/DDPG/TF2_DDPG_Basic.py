@@ -21,11 +21,16 @@ tf.keras.backend.set_floatx('float64')
 def actor(state_shape, action_dim, action_bound, action_shift, units=(400, 300)):
     state = Input(shape=state_shape)
     # x = Dense(units[0], name="L0", activation='relu')(state)
-    x = layers.Conv2D(16, kernel_size=3, strides=1, padding='SAME', activation='relu')(state)
-    x = layers.Conv2D(16, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
-    x = layers.Conv2D(16, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.Conv2D(32, kernel_size=5, strides=1, padding='SAME', activation='relu')(state)
+    x = layers.Conv2D(32, kernel_size=5, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.MaxPool2D()(x)
+    x = layers.Conv2D(64, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.Conv2D(64, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.MaxPool2D()(x)
+    x = layers.Conv2D(128, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.Conv2D(128, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
     x = layers.Flatten()(x)
-    x = Dense(units[0], name="L0")(x)
+    x = Dense(units[0], name="L0", activation='relu')(x)
     for index in range(1, len(units)):
         x = Dense(units[index], name="L{}".format(index), activation='relu')(x)
         # x = Dense(units[index], name="L{}".format(index))(x)
@@ -52,8 +57,19 @@ def critic(state_shape, action_dim, units=(48, 24)):
     input1 = Input(shape=state_shape)
     input2 = Input(shape=(action_dim,))
     inputs = [input1,input2]
-    input_reshape_1 = layers.Reshape((chengji(state_shape),))(input1)
-    input_reshape_2 = layers.Reshape((action_dim,))(input2)
+
+    x = layers.Conv2D(32, kernel_size=5, strides=1, padding='SAME', activation='relu')(input1)
+    x = layers.Conv2D(32, kernel_size=5, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.MaxPool2D()(x)
+    x = layers.Conv2D(64, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.Conv2D(64, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.MaxPool2D()(x)
+    x = layers.Conv2D(128, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
+    x = layers.Conv2D(128, kernel_size=3, strides=1, padding='SAME', activation='relu')(x)
+    input_reshape_1 = layers.Flatten()(x)
+
+    # input_reshape_1 = layers.Reshape((chengji(state_shape),))(input1)
+    input_reshape_2 = layers.Flatten()(input2)
     inputs_reshape = [input_reshape_1, input_reshape_2]
     concat = Concatenate(axis=-1)(inputs_reshape)
     x = Dense(units[0], name="L0", activation='relu')(concat)
@@ -140,6 +156,7 @@ class DDPG:
         self.actor_target = actor(self.state_shape, self.action_dim, self.action_bound, self.action_shift, actor_units)
         self.actor_optimizer = Adam(learning_rate=lr_actor)
         update_target_weights(self.actor, self.actor_target, tau=1.)
+        self.actor.summary()
 
         # Define and initialize Critic network
         self.critic = critic(self.state_shape, self.action_dim, critic_units)
@@ -246,22 +263,22 @@ class DDPG:
                 print("episode {}: {} total reward, {} steps, {} epochs".format(
                     episode, total_reward, steps, epoch))
 
-                with summary_writer.as_default():
-                    tf.summary.scalar('Main/episode_reward', total_reward, step=episode)
-                    tf.summary.scalar('Main/episode_steps', steps, step=episode)
+                # with summary_writer.as_default():
+                #     tf.summary.scalar('Main/episode_reward', total_reward, step=episode)
+                #     tf.summary.scalar('Main/episode_steps', steps, step=episode)
 
-                summary_writer.flush()
+                # summary_writer.flush()
                 self.noise.reset()
 
                 if steps >= max_steps:
                     print("episode {}, reached max steps".format(episode))
-                    self.save_model("ddpg_actor_episode{}.h5".format(episode),
-                                    "ddpg_critic_episode{}.h5".format(episode))
+                    self.save_model("RL/train0/ddpg_actor_episode{}.h5".format(episode),
+                                    "RL/train0/ddpg_critic_episode{}.h5".format(episode))
 
                 done, cur_state, steps, total_reward = False, self.env.reset(), 0, 0
                 if episode % save_freq == 0:
-                    self.save_model("ddpg_actor_episode{}.h5".format(episode),
-                                    "ddpg_critic_episode{}.h5".format(episode))
+                    self.save_model("RL/train0/ddpg_actor_episode{}.h5".format(episode),
+                                    "RL/train0/ddpg_critic_episode{}.h5".format(episode))
 
             a = self.act(cur_state)  # model determine action given state
             action = np.argmax(a) if self.discrete else a[0]  # post process for discrete action space
@@ -278,18 +295,18 @@ class DDPG:
             steps += 1
             epoch += 1
 
-            # Tensorboard update
-            with summary_writer.as_default():
-                if len(self.memory) > self.batch_size:
-                    tf.summary.scalar('Loss/actor_loss', self.summaries['actor_loss'], step=epoch)
-                    tf.summary.scalar('Loss/critic_loss', self.summaries['critic_loss'], step=epoch)
-                tf.summary.scalar('Main/step_reward', reward, step=epoch)
-                tf.summary.scalar('Stats/q_val', self.summaries['q_val'], step=epoch)
+            # # Tensorboard update
+            # with summary_writer.as_default():
+            #     if len(self.memory) > self.batch_size:
+            #         tf.summary.scalar('Loss/actor_loss', self.summaries['actor_loss'], step=epoch)
+            #         tf.summary.scalar('Loss/critic_loss', self.summaries['critic_loss'], step=epoch)
+            #     tf.summary.scalar('Main/step_reward', reward, step=epoch)
+            #     tf.summary.scalar('Stats/q_val', self.summaries['q_val'], step=epoch)
+            #
+            # summary_writer.flush()
 
-            summary_writer.flush()
-
-        self.save_model("ddpg_actor_final_episode{}.h5".format(episode),
-                        "ddpg_critic_final_episode{}.h5".format(episode))
+        self.save_model("RL/train0/ddpg_actor_final_episode{}.h5".format(episode),
+                        "RL/train0/ddpg_critic_final_episode{}.h5".format(episode))
 
     def policy(self, state):
         a = self.act(state, add_noise=False)
@@ -306,6 +323,7 @@ class DDPG:
             next_state, reward, done, _ = self.env.step(action)
             cur_state = next_state
             rewards += reward
+            self.env.render()
         #     if render:
         #         video.append_data(self.env.render(mode='rgb_array'))
         # video.close()
